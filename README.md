@@ -10,7 +10,7 @@ The project one-pager is available [here](docs/one_pager.md).
 
 ---
 
-## 💼 Problem Statement & Business Value
+## Problem Statement & Business Value
 
 ### The Problem
 Users may **struggle selecting content** on streaming platforms due to the overwhelming number of choices, thus spending excessive time on content discovery. New users may abandon the platform without watching a single movie due to the lack of handling the  **Cold Start** problem. These issues may lead to **increased Churn Rate** and **lost revenue**.
@@ -28,7 +28,7 @@ Users may **struggle selecting content** on streaming platforms due to the overw
 
 ---
 
-## 📐 Project Architecture
+## Project Architecture
 
 ![Architecture Diagram](docs/architecture.png)
 
@@ -36,7 +36,7 @@ Users may **struggle selecting content** on streaming platforms due to the overw
 
 ---
 
-## 🏗 Tech Stack
+## Tech Stack
 
 *   **ML Core:** `Rectools`, `Implicit`. iALS + Popularity-based model.
 *   **API Service:** `FastAPI`. Supports **recommendation generation** and **model reload**.
@@ -55,7 +55,7 @@ Users may **struggle selecting content** on streaming platforms due to the overw
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 
 ```text
 MovieRecs/
@@ -94,7 +94,7 @@ MovieRecs/
 
 ---
 
-## 🚀 Start Guide
+## Start Guide
 
 ### Launch the System
 Run the entire stack with a single command:
@@ -113,7 +113,7 @@ docker-compose up -d --build
 
 ---
 
-## 🖥️ Access Points
+## Access Points
 
 Once running, access the services via your browser:
 
@@ -127,7 +127,7 @@ Once running, access the services via your browser:
 
 ---
 
-## 🛠️ Usage Scenarios
+## Usage Scenarios
 
 ### 1. Getting Recommendations (Inference)
 1.  Go to the **Streamlit UI** (`localhost:8501`).
@@ -150,7 +150,7 @@ Once running, access the services via your browser:
 
 ---
 
-## 📊 Monitoring
+## Monitoring
 
 The project implements a dashboard via **Grafana**, that includes the following graphs:
 
