@@ -24,8 +24,32 @@ CH_HOST = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CH_PORT = os.getenv("CLICKHOUSE_PORT", "8123")
 
 
-def get_pg_engine():
-    return create_engine(f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DB}")
+def get_pg_engine(retries=10, delay=3):
+    db_url = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DB}"
+    engine = create_engine(db_url)
+    
+    for i in range(retries):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return engine
+        except Exception as e:
+            logger.error(f"Unexpected error connecting to Postgres: {e}")
+            time.sleep(delay)
+            
+    raise ConnectionError("Could not connect to Postgres after multiple attempts")
+
+def get_clickhouse_client(retries=10, delay=3):
+    for i in range(retries):
+        try:
+            client = clickhouse_connect.get_client(host=CH_HOST, port=int(CH_PORT))
+            client.query("SELECT 1")
+            return client
+        except Exception as e:
+            logger.warning(f"ClickHouse not ready yet (Attempt {i+1}/{retries}). Waiting... Error: {e}")
+            time.sleep(delay)
+    raise ConnectionError("Could not connect to ClickHouse after multiple attempts")
+
 
 def load_movies_to_postgres():
     engine = get_pg_engine()
@@ -82,7 +106,8 @@ def load_users_to_postgres():
         raise
 
 def load_ratings_to_clickhouse():
-    client = clickhouse_connect.get_client(host=CH_HOST, port=int(CH_PORT))
+    #client = clickhouse_connect.get_client(host=CH_HOST, port=int(CH_PORT))
+    client = get_clickhouse_client()
     
     # Check if data already exists
     count = client.query("SELECT count() FROM interactions").result_rows[0][0]
