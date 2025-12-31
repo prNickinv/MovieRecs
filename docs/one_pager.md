@@ -4,7 +4,7 @@
 
 ---
 
-## 🎯 Problem Statement & Business Value
+## Problem Statement & Business Value
 **The Problem:** Users may **struggle selecting content** on streaming platforms due to the overwhelming number of choices, thus spending excessive time on content discovery. New users may abandon the platform without watching a single movie due to the lack of handling the  **Cold Start** problem. These issues may lead to increased Churn Rate and lost revenue.
 
 **The Solution:** A hybrid recommendation system.
@@ -13,13 +13,13 @@
 *   **Feedback Loop:** Instantly processes user interactions (likes) for continuous model improvement.
 
 **Anticipated Business Impact:**
-*   🚀 **Reduction** in content discovery time.
-*   📈 **Increased CTR** (Click-Through Rate) in recommendation feed.
-*   🔄 **Higher Retention** achieved through relevant content delivery.
+*   **Reduction** in content discovery time.
+*   **Increased CTR** (Click-Through Rate) in recommendation feed.
+*   **Higher Retention** achieved through relevant content delivery.
 
 ---
 
-## 🏗 Architecture & Tech Stack
+## Architecture & Tech Stack
 
 | Component | Technologies | Description |
 | :--- | :--- | :--- |
@@ -34,7 +34,7 @@
 
 ---
 
-## 📊 Data & ML Pipeline
+## Data & ML Pipeline
 
 **Data Sources (MovieLens + Live Events):**
 1.  **Interactions:** `User ID` :: `Movie ID` :: `Rating` :: `Timestamp`.
@@ -48,7 +48,7 @@
 
 ---
 
-## 📐 Architecture Diagram
+## Architecture Diagram
 
 ![Architecture Diagram](architecture.png)
 
