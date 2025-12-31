@@ -1,0 +1,16 @@
+.DS_Store
+
+data/postgres/pgdata/
+data/clickhouse/*
+!data/clickhouse/.gitkeep
+
+logs/*
+!logs/.gitkeep
+
+models/train_interactions.parquet
+
+src/__pycache__/
+src/airflow_dags/__pycache__/
+src/etl/__pycache__/
+src/service/__pycache__/
+src/utils/__pycache__/

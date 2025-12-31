@@ -1,0 +1,333 @@
+version: '3.9'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    healthcheck:
+      test: echo srvr | nc zookeeper 2181 || exit 1
+      start_period: 10s
+      retries: 20
+      interval: 5s
+    networks:
+      - recsys_network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      data_loader:
+        condition: service_completed_successfully
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,OUTSIDE://localhost:9094
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: nc -z localhost 9092 || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - recsys_network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: recsys_db
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      # Initialization script
+      - ./src/database/init_pg.sql:/docker-entrypoint-initdb.d/init_pg.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d recsys_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - recsys_network
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8-alpine
+    container_name: clickhouse
+    hostname: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+      # Initialization script
+      - ./src/database/init_ch.sql:/docker-entrypoint-initdb.d/init_ch.sql
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - recsys_network
+
+  data_loader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: data_loader
+    command: python src/etl/load_initial_data.py
+    restart: "no"
+    volumes:
+      - ./data/raw:/app/data/raw
+      - ./logs:/app/logs
+      - ./src:/app/src
+    environment:
+      - PYTHONPATH=/app
+      - POSTGRES_HOST=postgres
+      - CLICKHOUSE_HOST=clickhouse
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    networks:
+      - recsys_network
+
+  ml_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ml_service
+    command: uvicorn src.service.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./src:/app/src
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      data_loader:
+        condition: service_completed_successfully
+    networks:
+      - recsys_network
+
+  kafka_consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kafka_consumer
+    command: python -u src/etl/kafka_consumer.py
+    volumes:
+      - ./logs:/app/logs
+      - ./src:/app/src
+    environment:
+      - PYTHONPATH=/app
+    depends_on:
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      data_loader:
+        condition: service_completed_successfully
+    networks:
+      - recsys_network
+
+  streamlit_ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamlit_ui
+    command: streamlit run src/ui/app.py
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data/images:/app/data/images
+      - ./logs:/app/logs
+      - ./src:/app/src
+    environment:
+      - PYTHONPATH=/app
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PASSWORD=password
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml_service:
+        condition: service_started
+      kafka_consumer:
+        condition: service_started
+    networks:
+      - recsys_network
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: airflow_init
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "airflow db migrate
+      && airflow users create --username admin --firstname Admin --lastname User --role Admin --email admin@example.com --password admin"
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password@postgres/recsys_db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml_service:
+        condition: service_started
+      streamlit_ui:
+        condition: service_started
+    networks:
+      - recsys_network
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: airflow_webserver
+    command: webserver
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password@postgres/recsys_db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ./src/airflow_dags:/opt/airflow/dags
+      - ./models:/opt/airflow/models
+      - ./logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - recsys_network
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: airflow_scheduler
+    command: scheduler
+    restart: always
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://user:password@postgres/recsys_db
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    volumes:
+      - ./src/airflow_dags:/opt/airflow/dags
+      - ./models:/opt/airflow/models
+      - ./logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - recsys_network
+
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: prometheus
+    volumes:
+      - ./configs/prometheus:/etc/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - recsys_network
+
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
+    volumes:
+      - ./configs/loki:/etc/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - recsys_network
+
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: promtail
+    volumes:
+      - ./configs/promtail:/etc/promtail
+      - ./logs:/app/logs:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - recsys_network
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./configs/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clickhouse-datasource
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+    networks:
+      - recsys_network
+
+networks:
+  recsys_network:
+    driver: bridge
+
+volumes:
+  data:
